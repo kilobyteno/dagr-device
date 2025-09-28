@@ -251,14 +251,56 @@ get_device_ip_address() {
   echo "$ip_address"
 }
 
+# Get device MAC address
+get_device_mac_address() {
+  # Get MAC address of the first active network interface (excluding loopback)
+  local mac_address=$(ip link show | grep -E "link/ether" | head -n1 | awk '{print $2}' | tr '[:lower:]' '[:upper:]')
+  echo "$mac_address"
+}
+
+# Extract last 3 octets of MAC address for hostname suffix
+get_mac_suffix() {
+  local mac_address=$(get_device_mac_address)
+  if [ -n "$mac_address" ]; then
+    # Extract last 3 octets and remove colons (e.g., "AB:CD:EF" from "12:34:56:AB:CD:EF")
+    echo "$mac_address" | cut -d':' -f4-6 | tr -d ':'
+  else
+    # Fallback to random 6-character hex string if MAC not found
+    echo "$(openssl rand -hex 3 | tr '[:lower:]' '[:upper:]')"
+  fi
+}
+
+# Set system hostname to dagr-XXX format
+set_dagr_hostname() {
+  local mac_suffix=$(get_mac_suffix)
+  local new_hostname="dagr-$mac_suffix"
+  
+  info "Setting hostname to $new_hostname"
+  
+  # Set the hostname
+  sudo hostnamectl set-hostname "$new_hostname"
+  
+  # Update /etc/hosts to include the new hostname
+  sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$new_hostname/" /etc/hosts
+  
+  # If the entry doesn't exist, add it
+  if ! grep -q "127.0.1.1" /etc/hosts; then
+    echo "127.0.1.1	$new_hostname" | sudo tee -a /etc/hosts > /dev/null
+  fi
+  
+  success "Hostname set to $new_hostname"
+}
+
 complete_dagr_installation() {
   # Get system information
   local device_hostname=$(get_device_hostname)
   local device_ip_address=$(get_device_ip_address)
+  local device_mac_address=$(get_device_mac_address)
   
   header "Installation Complete!"
   success "Dagr has been successfully installed"
   info "Device hostname: $(highlight "$device_hostname")"
+  info "Device MAC address: $(highlight "$device_mac_address")"
   info "Device IP address: $(highlight "$device_ip_address")"
   info "A system reboot is required for hardware interface changes"
   info "After reboot, Dagr service will start automatically"
@@ -289,6 +331,7 @@ echo
 check_sudo_permissions
 stop_dagr_service
 enable_system_interfaces
+set_dagr_hostname
 install_system_dependencies
 optimize_system_performance
 setup_dagr_directories
