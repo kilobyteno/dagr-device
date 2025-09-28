@@ -678,7 +678,6 @@ async def display_status():
         "current_image_index": display_manager.current_image_index,
         "total_images": len(images),
         "images": [img.name for img in images],
-        "demo_directory": str(display_manager.DEMO_DIR)
     }
 
 @app.post("/api/display/next")
