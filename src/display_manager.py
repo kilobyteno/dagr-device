@@ -83,31 +83,46 @@ class DisplayManager:
     
     def initialize_display(self):
         """Initialize the e-ink display"""
+        display_config = self.config.get("display", {})
+        
+        # Auto-detect and initialize display
         try:
-            display_config = self.config.get("display", {})
-            
-            # Auto-detect and initialize display
-            try:
-                self.display = auto()
-                logger.info(f"Auto-detected display: {type(self.display).__name__}")
-            except Exception as e:
-                logger.warning(f"No physical e-ink display found: {e}")
-                logger.info("Running in simulation mode")
-                self.display = None
-            
-            if self.display:
-                # Configure display orientation
-                orientation = display_config.get("orientation", "landscape")
-                if orientation == "portrait":
-                    self.display.set_rotation(90)
-                else:
-                    self.display.set_rotation(0)
-                
-                logger.info(f"Display configured: {self.display.width}x{self.display.height}")
-                
-        except Exception as e:
-            logger.error(f"Failed to initialize display: {e}")
+            self.display = auto()
+            logger.info(f"Auto-detected display: {type(self.display).__name__}")
+        except SystemExit as e:
+            if "pins we need are in use" in str(e):
+                logger.error(f"GPIO pin conflict detected: {e}")
+                logger.error("SPI interface is already in use. Please disable SPI in raspi-config or reboot the system.")
+                logger.info("Running in simulation mode due to GPIO conflict")
+            else:
+                logger.warning(f"System exit during display detection: {e}")
             self.display = None
+            return
+        except Exception as e:
+            logger.warning(f"No physical e-ink display found: {e}")
+            logger.info("Running in simulation mode")
+            self.display = None
+            return
+        
+        # Configure display orientation
+        if self.display:
+            orientation = display_config.get("orientation", "landscape")
+            try:
+                if orientation == "portrait":
+                    if hasattr(self.display, 'set_rotation'):
+                        self.display.set_rotation(90)
+                    elif hasattr(self.display, 'rotation'):
+                        self.display.rotation = 90
+                else:
+                    if hasattr(self.display, 'set_rotation'):
+                        self.display.set_rotation(0)
+                    elif hasattr(self.display, 'rotation'):
+                        self.display.rotation = 0
+                logger.info(f"Display orientation set to: {orientation}")
+            except Exception as e:
+                logger.warning(f"Could not set display orientation: {e}")
+            
+            logger.info(f"Display configured: {self.display.width}x{self.display.height}")
     
     def get_demo_images(self) -> List[Path]:
         """Get list of demo images"""
