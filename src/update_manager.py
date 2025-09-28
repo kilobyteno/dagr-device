@@ -346,6 +346,46 @@ class UpdateManager:
         except Exception as e:
             logger.warning(f"Could not start systemd service: {e}")
     
+    def configure_system_interfaces(self):
+        """Configure system interfaces after update"""
+        logger.info("Configuring system interfaces after update")
+        
+        try:
+            # Configure SPI for Inky display compatibility
+            config_file = Path("/boot/firmware/config.txt")
+            if not config_file.exists():
+                # Try alternative path for older Raspberry Pi OS
+                config_file = Path("/boot/config.txt")
+            
+            if config_file.exists():
+                # Read current configuration
+                with open(config_file, 'r') as f:
+                    config_content = f.read()
+                
+                # Check if SPI is enabled and disable it for Inky compatibility
+                if "dtparam=spi=on" in config_content and not config_content.startswith("#dtparam=spi=on"):
+                    logger.info("Disabling SPI kernel driver for Inky display compatibility")
+                    
+                    # Replace enabled SPI with disabled (commented) version
+                    new_content = config_content.replace(
+                        "dtparam=spi=on", 
+                        "#dtparam=spi=on  # Disabled for Inky display direct GPIO access"
+                    )
+                    
+                    # Write updated configuration
+                    with open(config_file, 'w') as f:
+                        f.write(new_content)
+                    
+                    logger.info("SPI kernel driver disabled for Inky display compatibility")
+                    logger.warning("System reboot required for SPI changes to take effect")
+                else:
+                    logger.info("SPI configuration already compatible with Inky displays")
+            else:
+                logger.warning("Could not find boot configuration file")
+                
+        except Exception as e:
+            logger.warning(f"Could not configure system interfaces: {e}")
+    
     def perform_update(self, download_url: str) -> Dict:
         """Perform complete update process"""
         logger.info("Starting update process")
@@ -366,6 +406,9 @@ class UpdateManager:
             # Apply update
             if not self.apply_update(update_dir):
                 return {"success": False, "error": "Failed to apply update"}
+            
+            # Run post-update system configuration
+            self.configure_system_interfaces()
             
             # Restart services if configured
             if self.update_config.get("restart_after_update", True):
