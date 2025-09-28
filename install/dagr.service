@@ -35,7 +35,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/run/dagr /usr/local/dagr
+ReadWritePaths=/run/dagr /usr/local/dagr /usr/local/dagr/config /usr/local/dagr/src
 
 # Signal handling
 KillMode=mixed

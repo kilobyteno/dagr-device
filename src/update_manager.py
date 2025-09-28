@@ -293,15 +293,29 @@ class UpdateManager:
                     new_version = f.read().strip()
                 version_manager.set_version(new_version)
             
-            # Set executable permissions
-            executable_files = [
-                self.project_root / "install" / "dagr",
-                self.src_dir / "dagr_display"
-            ]
-            
-            for exe_file in executable_files:
-                if exe_file.exists():
-                    exe_file.chmod(0o755)
+            # Set proper ownership and permissions for all files
+            import subprocess
+            try:
+                # Set ownership to root
+                subprocess.run(["chown", "-R", "root:root", str(self.project_root)], check=True)
+                
+                # Set permissions for Python files
+                subprocess.run(["find", str(self.src_dir), "-type", "f", "-name", "*.py", "-exec", "chmod", "644", "{}", ";"], check=False)
+                
+                # Set executable permissions for scripts
+                executable_files = [
+                    self.project_root / "install" / "dagr",
+                    self.src_dir / "dagr_display",
+                    self.src_dir / "dagr_update"
+                ]
+                
+                for exe_file in executable_files:
+                    if exe_file.exists():
+                        exe_file.chmod(0o755)
+                        
+                logger.info("Permissions updated successfully")
+            except Exception as e:
+                logger.warning(f"Could not update permissions: {e}")
             
             logger.info("Update applied successfully")
             return True

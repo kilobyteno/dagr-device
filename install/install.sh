@@ -224,10 +224,16 @@ setup_dagr_directories() {
   mkdir -p "$DAGR_INSTALL_ROOT"
   success "Project directory created"
 
-  # Create symlink to source code
+  # Copy source code directly (no symlink to avoid systemd security issues)
   if [[ -d "$DAGR_SOURCE_DIR" ]]; then
-    ln -sf "$DAGR_SOURCE_DIR" "$DAGR_INSTALL_ROOT/src"
-    success "Source code linked"
+    cp -r "$DAGR_SOURCE_DIR" "$DAGR_INSTALL_ROOT/"
+    success "Source code copied to $DAGR_INSTALL_ROOT/src"
+    
+    # Set proper ownership and permissions
+    chown -R root:root "$DAGR_INSTALL_ROOT/src"
+    find "$DAGR_INSTALL_ROOT/src" -type f -name "*.py" -exec chmod 644 {} \;
+    find "$DAGR_INSTALL_ROOT/src" -type f \( -name "dagr_*" -o -name "*.sh" \) -exec chmod 755 {} \;
+    success "Permissions set correctly"
   else
     error "Source directory not found: $DAGR_SOURCE_DIR"
     exit 1
