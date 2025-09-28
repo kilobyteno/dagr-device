@@ -52,7 +52,7 @@ class UpdateManager:
             "update_channel": "stable",
             "backup_before_update": True,
             "restart_after_update": True,
-            "update_url": "https://api.github.com/repos/your-org/dagr-device/releases/latest",
+            "update_url": "https://api.github.com/repos/kilobyteno/dagr-device/releases/latest",
             "excluded_files": [
                 "config/*.json",
                 "config/tokens.json",
@@ -362,24 +362,30 @@ class UpdateManager:
                 with open(config_file, 'r') as f:
                     config_content = f.read()
                 
-                # Check if SPI is enabled and disable it for Inky compatibility
-                if "dtparam=spi=on" in config_content and not config_content.startswith("#dtparam=spi=on"):
-                    logger.info("Disabling SPI kernel driver for Inky display compatibility")
+                # Check if SPI is disabled and enable it for Inky compatibility
+                if "#dtparam=spi=on" in config_content and "dtparam=spi=on" not in config_content.replace("#dtparam=spi=on", ""):
+                    logger.info("Enabling SPI kernel driver for Inky display compatibility")
                     
-                    # Replace enabled SPI with disabled (commented) version
+                    # Replace disabled SPI with enabled version
                     new_content = config_content.replace(
-                        "dtparam=spi=on", 
-                        "#dtparam=spi=on  # Disabled for Inky display direct GPIO access"
+                        "#dtparam=spi=on", 
+                        "dtparam=spi=on"
                     )
                     
                     # Write updated configuration
                     with open(config_file, 'w') as f:
                         f.write(new_content)
                     
-                    logger.info("SPI kernel driver disabled for Inky display compatibility")
+                    logger.info("SPI kernel driver enabled for Inky display compatibility")
                     logger.warning("System reboot required for SPI changes to take effect")
+                elif "dtparam=spi=on" in config_content:
+                    logger.info("SPI kernel driver already enabled")
                 else:
-                    logger.info("SPI configuration already compatible with Inky displays")
+                    # Add SPI configuration if it doesn't exist
+                    with open(config_file, 'a') as f:
+                        f.write("\n# SPI interface for Inky display\ndtparam=spi=on\n")
+                    logger.info("SPI kernel driver enabled for Inky display compatibility")
+                    logger.warning("System reboot required for SPI changes to take effect")
             else:
                 logger.warning("Could not find boot configuration file")
                 
