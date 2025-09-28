@@ -31,7 +31,7 @@ LOG_FILE = CONFIG_DIR / "display.log"
 
 # Ensure directories exist
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-DEMO_DIR.mkdir(parents=True, exist_ok=True)
+# Note: Don't auto-create DEMO_DIR as it should come with demo images from installation
 
 # Logging setup
 logging.basicConfig(
@@ -87,17 +87,40 @@ class DisplayManager:
         
         # Auto-detect and initialize display
         try:
+            logger.info("Attempting to auto-detect display...")
+            
+            # Check for required device files
+            device_files_to_check = [
+                "/dev/spidev0.0",
+                "/dev/spidev0.1", 
+                "/dev/gpiomem",
+                "/sys/class/gpio"
+            ]
+            
+            for device_file in device_files_to_check:
+                if Path(device_file).exists():
+                    logger.info(f"Device file exists: {device_file}")
+                else:
+                    logger.warning(f"Device file missing: {device_file}")
+            
             self.display = auto()
             logger.info(f"Auto-detected display: {type(self.display).__name__}")
+            logger.info(f"Display model: {getattr(self.display, '_model', 'Unknown')}")
+            logger.info(f"Display resolution: {self.display.width}x{self.display.height}")
+            logger.info(f"Display color mode: {self.display.colour}")
         except SystemExit as e:
             if "pins we need are in use" in str(e):
                 logger.error(f"GPIO pin conflict detected: {e}")
-                logger.error("SPI interface is already in use. Please disable SPI in raspi-config or reboot the system.")
+                logger.error("This indicates SPI interface configuration issues.")
+                logger.error("The system needs proper SPI configuration for this display model.")
+                logger.info("Please ensure SPI is properly configured in /boot/firmware/config.txt")
                 logger.info("Running in simulation mode due to GPIO conflict")
+                self.display = None
+                return
             else:
                 logger.warning(f"System exit during display detection: {e}")
-            self.display = None
-            return
+                self.display = None
+                return
         except Exception as e:
             logger.warning(f"No physical e-ink display found: {e}")
             logger.info("Running in simulation mode")
@@ -124,15 +147,171 @@ class DisplayManager:
             
             logger.info(f"Display configured: {self.display.width}x{self.display.height}")
     
+    def _resolve_display_gpio_conflict(self) -> bool:
+        """Resolve GPIO conflicts during display operations"""
+        try:
+            import subprocess
+            import time
+            
+            logger.info("Attempting to resolve GPIO conflict for display update...")
+            
+            # Method 1: Try to release GPIO pins that might be in use
+            gpio_pins_to_release = [8, 7, 10, 11, 25]  # Common SPI and display pins
+            for pin in gpio_pins_to_release:
+                try:
+                    # Try to unexport the pin if it's exported
+                    with open(f"/sys/class/gpio/unexport", "w") as f:
+                        f.write(str(pin))
+                    logger.debug(f"Released GPIO pin {pin}")
+                except:
+                    pass  # Pin might not be exported, which is fine
+            
+            time.sleep(0.2)
+            
+            # Method 2: Try to temporarily disable and re-enable SPI
+            try:
+                logger.debug("Temporarily managing SPI for display update...")
+                
+                # Disable SPI briefly
+                result = subprocess.run(
+                    ["sudo", "modprobe", "-r", "spi_bcm2835"], 
+                    capture_output=True, text=True, timeout=5
+                )
+                
+                time.sleep(0.1)
+                
+                # Re-enable SPI
+                subprocess.run(
+                    ["sudo", "modprobe", "spi_bcm2835"], 
+                    capture_output=True, text=True, timeout=5
+                )
+                
+                time.sleep(0.2)
+                logger.info("GPIO conflict resolution completed")
+                return True
+                
+            except subprocess.TimeoutExpired:
+                logger.warning("SPI module management timed out")
+                return False
+            except Exception as spi_e:
+                logger.warning(f"SPI module management failed: {spi_e}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"GPIO conflict resolution failed: {e}")
+            return False
+    
+    def create_demo_placeholder(self):
+        """Create a placeholder demo image if no images exist"""
+        try:
+            DEMO_DIR.mkdir(parents=True, exist_ok=True)
+            
+            # Create a simple placeholder image
+            placeholder_path = DEMO_DIR / "placeholder.png"
+            if not placeholder_path.exists():
+                # Create a placeholder image with correct display dimensions
+                from PIL import Image, ImageDraw, ImageFont
+                
+                # Use display dimensions if available, otherwise use a reasonable default
+                width, height = (800, 480)  # Default for detected display
+                if self.display:
+                    width, height = self.display.width, self.display.height
+                
+                img = Image.new('RGB', (width, height), color=(240, 240, 240))
+                draw = ImageDraw.Draw(img)
+                
+                # Try to get a font for the text
+                font = None
+                font_paths = [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+                ]
+                
+                for font_path in font_paths:
+                    try:
+                        font = ImageFont.truetype(font_path, 24)
+                        break
+                    except (OSError, IOError):
+                        continue
+                
+                if font is None:
+                    font = ImageFont.load_default()
+                
+                # Add text to the placeholder
+                text = "Dagr Demo Image"
+                subtitle = "Add your images to:"
+                path_text = str(DEMO_DIR)
+                
+                # Center the main text
+                text_bbox = draw.textbbox((0, 0), text, font=font)
+                text_width = text_bbox[2] - text_bbox[0]
+                x = (width - text_width) // 2
+                y = height // 2 - 60
+                
+                draw.text((x, y), text, fill=(60, 60, 60), font=font)
+                
+                # Add subtitle and path
+                small_font = None
+                for font_path in font_paths:
+                    try:
+                        small_font = ImageFont.truetype(font_path, 14)
+                        break
+                    except (OSError, IOError):
+                        continue
+                
+                if small_font is None:
+                    small_font = font
+                
+                subtitle_bbox = draw.textbbox((0, 0), subtitle, font=small_font)
+                subtitle_width = subtitle_bbox[2] - subtitle_bbox[0]
+                x = (width - subtitle_width) // 2
+                y = height // 2 - 20
+                draw.text((x, y), subtitle, fill=(100, 100, 100), font=small_font)
+                
+                path_bbox = draw.textbbox((0, 0), path_text, font=small_font)
+                path_width = path_bbox[2] - path_bbox[0]
+                x = (width - path_width) // 2
+                y = height // 2 + 10
+                draw.text((x, y), path_text, fill=(100, 100, 100), font=small_font)
+                
+                # Save the placeholder image
+                img.save(placeholder_path, 'PNG')
+                logger.info(f"Created placeholder demo image: {placeholder_path}")
+                
+        except Exception as e:
+            logger.error(f"Failed to create demo placeholder: {e}")
+    
     def get_demo_images(self) -> List[Path]:
         """Get list of demo images"""
         supported_formats = {'.png', '.jpg', '.jpeg', '.bmp', '.gif'}
         images = []
         
+        logger.info(f"Looking for demo images in: {DEMO_DIR}")
+        logger.info(f"Demo directory exists: {DEMO_DIR.exists()}")
+        
         if DEMO_DIR.exists():
+            logger.info(f"Demo directory contents: {list(DEMO_DIR.iterdir())}")
             for file_path in DEMO_DIR.iterdir():
+                logger.info(f"Checking file: {file_path} (is_file: {file_path.is_file()}, suffix: {file_path.suffix.lower()})")
                 if file_path.is_file() and file_path.suffix.lower() in supported_formats:
                     images.append(file_path)
+        else:
+            logger.error(f"Demo directory does not exist: {DEMO_DIR}")
+            logger.info(f"Parent directory exists: {DEMO_DIR.parent.exists()}")
+            if DEMO_DIR.parent.exists():
+                logger.info(f"Parent directory contents: {list(DEMO_DIR.parent.iterdir())}")
+            
+            # Try to create demo directory with a placeholder image
+            try:
+                self.create_demo_placeholder()
+                # Retry getting images after creating placeholder
+                if DEMO_DIR.exists():
+                    for file_path in DEMO_DIR.iterdir():
+                        if file_path.is_file() and file_path.suffix.lower() in supported_formats:
+                            images.append(file_path)
+            except Exception as e:
+                logger.warning(f"Could not create demo placeholder: {e}")
         
         images.sort()  # Sort alphabetically
         logger.info(f"Found {len(images)} demo images: {[img.name for img in images]}")
@@ -141,7 +320,13 @@ class DisplayManager:
     def prepare_image(self, image_path: Path) -> Optional[Image.Image]:
         """Prepare image for display"""
         try:
+            # Check if image file exists
+            if not image_path.exists():
+                logger.error(f"Image file does not exist: {image_path}")
+                return None
+            
             # Load image
+            logger.info(f"Loading image: {image_path}")
             image = Image.open(image_path)
             logger.info(f"Loaded image: {image_path.name} ({image.size})")
             
@@ -173,7 +358,7 @@ class DisplayManager:
             
             image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
-            # Create a new image with display dimensions and center the resized image
+            # Create a new image with exact display dimensions and center the resized image
             display_image = Image.new('RGB', (display_width, display_height), (255, 255, 255))
             
             # Calculate position to center the image
@@ -181,6 +366,11 @@ class DisplayManager:
             y = (display_height - new_height) // 2
             
             display_image.paste(image, (x, y))
+            
+            # Ensure the final image is exactly the right size
+            if display_image.size != (display_width, display_height):
+                logger.warning(f"Image size mismatch: {display_image.size} != ({display_width}, {display_height})")
+                display_image = display_image.resize((display_width, display_height), Image.Resampling.LANCZOS)
             
             # Add timestamp and filename
             self.add_image_info(display_image, image_path.name)
@@ -190,6 +380,9 @@ class DisplayManager:
             
         except Exception as e:
             logger.error(f"Failed to prepare image {image_path}: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return None
     
     def add_image_info(self, image: Image.Image, filename: str):
@@ -198,9 +391,22 @@ class DisplayManager:
             draw = ImageDraw.Draw(image)
             
             # Try to load a font, fall back to default if not available
-            try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-            except:
+            font = None
+            font_paths = [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans.ttf",
+                "/System/Library/Fonts/Arial.ttf",  # macOS fallback
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+            ]
+            
+            for font_path in font_paths:
+                try:
+                    font = ImageFont.truetype(font_path, 12)
+                    break
+                except (OSError, IOError):
+                    continue
+            
+            if font is None:
                 font = ImageFont.load_default()
             
             # Add timestamp
@@ -220,16 +426,59 @@ class DisplayManager:
                 logger.info("Simulation mode: Would display image")
                 return True
             
-            # Set image to display
-            self.display.set_image(image)
+            logger.info(f"Setting image on display (type: {type(self.display).__name__})")
             
-            # Show on display
-            self.display.show()
-            logger.info("Image displayed successfully")
+            # Set image to display
+            try:
+                self.display.set_image(image)
+                logger.info("Image set on display successfully")
+            except Exception as e:
+                logger.error(f"Failed to set image on display: {e}")
+                logger.error(f"Error type: {type(e).__name__}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                raise
+            
+            # Show on display with GPIO conflict handling
+            try:
+                logger.info("Calling display.show()")
+                self.display.show()
+                logger.info("Image displayed successfully")
+            except SystemExit as e:
+                if "pins we need are in use" in str(e):
+                    logger.warning(f"GPIO conflict during display.show(): {e}")
+                    logger.info("Attempting to resolve GPIO conflict for display update...")
+                    
+                    # Try to resolve the conflict and retry
+                    success = self._resolve_display_gpio_conflict()
+                    if success:
+                        try:
+                            logger.info("Retrying display.show() after conflict resolution...")
+                            self.display.show()
+                            logger.info("Image displayed successfully after conflict resolution")
+                        except Exception as retry_e:
+                            logger.error(f"Display update failed even after conflict resolution: {retry_e}")
+                            raise
+                    else:
+                        logger.error("Could not resolve GPIO conflict for display update")
+                        raise
+                else:
+                    logger.error(f"System exit during display.show(): {e}")
+                    raise
+            except Exception as e:
+                logger.error(f"Failed to show image on display: {e}")
+                logger.error(f"Error type: {type(e).__name__}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                raise
+            
             return True
             
         except Exception as e:
             logger.error(f"Failed to display image: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
     
     def show_next_image(self):
@@ -264,9 +513,24 @@ class DisplayManager:
             image = Image.new('RGB', (self.display.width, self.display.height), (255, 255, 255))
             draw = ImageDraw.Draw(image)
             
-            try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
-            except:
+            # Try to load a bold font, fall back to regular or default
+            font = None
+            bold_font_paths = [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Regular as fallback
+                "/System/Library/Fonts/Arial.ttf"  # macOS fallback
+            ]
+            
+            for font_path in bold_font_paths:
+                try:
+                    font = ImageFont.truetype(font_path, 24)
+                    break
+                except (OSError, IOError):
+                    continue
+            
+            if font is None:
                 font = ImageFont.load_default()
             
             message = "No demo images found"
@@ -279,11 +543,24 @@ class DisplayManager:
             
             draw.text((x, y), message, fill=(0, 0, 0), font=font)
             
-            # Add subtitle
-            try:
-                small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-            except:
-                small_font = font
+            # Add subtitle with smaller font
+            small_font = None
+            small_font_paths = [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                "/System/Library/Fonts/Arial.ttf"
+            ]
+            
+            for font_path in small_font_paths:
+                try:
+                    small_font = ImageFont.truetype(font_path, 12)
+                    break
+                except (OSError, IOError):
+                    continue
+            
+            if small_font is None:
+                small_font = font  # Use the main font as fallback
             
             subtitle_width = draw.textlength(subtitle, font=small_font)
             x = (self.display.width - subtitle_width) // 2

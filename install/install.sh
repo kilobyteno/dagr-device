@@ -47,17 +47,17 @@ check_sudo_permissions() {
 enable_system_interfaces() {
   info "Configuring system interfaces"
   
-  # Configure SPI for e-ink display communication
-  # Note: Inky displays need direct GPIO access, not kernel SPI driver
+  # Configure SPI for e-ink display communication (InkyPi approach)
+  # Enable SPI interface as required by Inky displays
   if grep -q "^dtparam=spi=on" /boot/firmware/config.txt; then
-    info "Disabling kernel SPI driver for Inky display compatibility"
-    sed -i 's/^dtparam=spi=on/#dtparam=spi=on/' /boot/firmware/config.txt
-    success "SPI kernel driver disabled for direct GPIO access"
+    success "SPI interface already enabled"
   elif grep -q "^#dtparam=spi=on" /boot/firmware/config.txt; then
-    success "SPI kernel driver already disabled"
+    info "Enabling SPI interface for Inky display"
+    sed -i 's/^#dtparam=spi=on/dtparam=spi=on/' /boot/firmware/config.txt
+    success "SPI interface enabled"
   else
-    echo "#dtparam=spi=on  # Disabled for Inky display direct GPIO access" | sudo tee -a /boot/firmware/config.txt > /dev/null
-    success "SPI configuration added (disabled for Inky compatibility)"
+    echo "dtparam=spi=on" | sudo tee -a /boot/firmware/config.txt > /dev/null
+    success "SPI interface enabled"
   fi
   
   # Enable I2C interface for sensors and additional peripherals

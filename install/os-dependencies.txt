@@ -8,6 +8,10 @@ libpng-dev
 libtiff-dev
 libfreetype6-dev
 
+# Fonts for display text rendering
+fonts-dejavu-core
+fonts-dejavu-extra
+
 # Memory management
 zram-tools
 earlyoom
