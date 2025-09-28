@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""
+Dagr Display CLI
+Command-line interface for managing the e-ink display
+"""
+
+import sys
+import os
+from pathlib import Path
+
+# Add src directory to path
+SRC_DIR = Path(__file__).parent
+sys.path.insert(0, str(SRC_DIR))
+
+from display_manager import DisplayManager
+
+def main():
+    """Main CLI function"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Dagr Display Management CLI")
+    parser.add_argument("--start", action="store_true", help="Start image rotation")
+    parser.add_argument("--stop", action="store_true", help="Stop image rotation") 
+    parser.add_argument("--next", action="store_true", help="Show next image")
+    parser.add_argument("--status", action="store_true", help="Show status")
+    parser.add_argument("--daemon", action="store_true", help="Run as daemon")
+    
+    args = parser.parse_args()
+    
+    # If no arguments, show status
+    if not any(vars(args).values()):
+        args.status = True
+    
+    try:
+        display_manager = DisplayManager()
+        
+        if args.status:
+            display_manager.display_status()
+        
+        if args.next:
+            display_manager.show_next_image()
+            print("✓ Next image displayed")
+        
+        if args.start:
+            display_manager.start_rotation()
+            print("✓ Display rotation started")
+        
+        if args.stop:
+            display_manager.stop_rotation()
+            print("✓ Display rotation stopped")
+            
+        if args.daemon:
+            display_manager.start_rotation()
+            print("🖥️  Starting display daemon - press Ctrl+C to stop")
+            try:
+                import time
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\n⏹️  Stopping display daemon")
+                display_manager.stop_rotation()
+                
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

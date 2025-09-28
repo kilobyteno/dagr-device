@@ -1,0 +1,41 @@
+{
+    "device_name": "Dagr Device",
+    "description": "Dagr",
+    "display": {
+        "type": "eink",
+        "orientation": "landscape",
+        "invert_colors": false,
+        "rotation": 0,
+        "auto_refresh": true
+    },
+    "scheduler": {
+        "update_interval": 60,
+        "enable_on_startup": true,
+        "max_retries": 3,
+        "retry_delay": 10
+    },
+    "logging": {
+        "level": "INFO",
+        "enable_file_logging": true,
+        "max_log_size_mb": 10,
+        "backup_count": 5
+    },
+    "system": {
+        "enable_watchdog": true,
+        "memory_limit_mb": 100,
+        "cpu_limit_percent": 25
+    },
+    "web_server": {
+        "host": "0.0.0.0",
+        "port": 8000,
+        "debug": false,
+        "auto_reload": false
+    },
+    "external_api": {
+        "base_url": "https://api.staging.dagr.no/api/v1",
+        "login_endpoint": "/auth/login",
+        "test_endpoint": "/user",
+        "token_field": "access_token",
+        "timeout": 30
+    }
+}

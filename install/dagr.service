@@ -1,0 +1,46 @@
+[Unit]
+Description=Dagr
+Documentation=https://github.com/kilobytno/dagr-device
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+RuntimeDirectory=dagr
+RuntimeDirectoryMode=0755
+WorkingDirectory=/run/dagr
+ExecStart=/usr/local/bin/dagr
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dagr
+
+# Resource limits
+CPUQuota=40%
+MemoryMax=150M
+TasksMax=50
+
+# Restart policy
+Restart=on-failure
+RestartSec=30
+StartLimitBurst=3
+StartLimitIntervalSec=300
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/dagr /usr/local/dagr
+
+# Signal handling
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

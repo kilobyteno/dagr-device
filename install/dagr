@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+# =============================================================================
+# Dagr - Main Executable
+# =============================================================================
+
+set -euo pipefail
+
+# Dagr Configuration Constants
+readonly DAGR_ROOT_DIR="/usr/local/dagr"
+readonly DAGR_VENV_DIR="$DAGR_ROOT_DIR/.venv"
+readonly DAGR_SRC_DIR="$DAGR_ROOT_DIR/src"
+readonly DAGR_MAIN_SCRIPT="$DAGR_SRC_DIR/dagr.py"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Dagr: $*" >&2
+}
+
+# Dagr error handling
+dagr_error_exit() {
+    log "ERROR: $1"
+    exit 1
+}
+
+# Validate Dagr environment
+validate_dagr_environment() {
+    [[ -d "$DAGR_ROOT_DIR" ]] || dagr_error_exit "Dagr directory not found: $DAGR_ROOT_DIR"
+    [[ -d "$DAGR_VENV_DIR" ]] || dagr_error_exit "Virtual environment not found: $DAGR_VENV_DIR"
+    [[ -f "$DAGR_VENV_DIR/bin/activate" ]] || dagr_error_exit "Virtual environment activation script not found"
+    [[ -d "$DAGR_SRC_DIR" ]] || dagr_error_exit "Source directory not found: $DAGR_SRC_DIR"
+    [[ -f "$DAGR_MAIN_SCRIPT" ]] || dagr_error_exit "Main script not found: $DAGR_MAIN_SCRIPT"
+}
+
+# Main Dagr execution
+main() {
+    log "Starting Dagr"
+    
+    # Validate environment
+    validate_dagr_environment
+    
+    # Activate virtual environment
+    # shellcheck source=/dev/null
+    source "$DAGR_VENV_DIR/bin/activate"
+    log "Virtual environment activated"
+    
+    # Set Dagr environment variables
+    export PROJECT_DIR="$DAGR_ROOT_DIR"
+    export SRC_DIR="$DAGR_SRC_DIR"
+    export DAGR_CONFIG_DIR="$DAGR_ROOT_DIR/config"
+    
+    # Execute main script
+    log "Executing main script: $DAGR_MAIN_SCRIPT"
+    exec python3 -u "$DAGR_MAIN_SCRIPT" "$@"
+}
+
+# Handle signals gracefully for Dagr
+trap 'log "Received termination signal, shutting down..."; exit 0' SIGTERM SIGINT
+
+# Run main Dagr function
+main "$@"

@@ -1,0 +1,16 @@
+# System packages required for Dagr
+python3
+python3-venv
+python3-pip
+
+# Graphics and image processing libraries
+libpng-dev
+libtiff-dev
+libfreetype6-dev
+
+# Memory management
+zram-tools
+earlyoom
+
+# Network discovery
+avahi-daemon

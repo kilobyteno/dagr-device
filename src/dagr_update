@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""
+Dagr Update CLI
+Command-line interface for managing updates
+"""
+
+import sys
+import os
+from pathlib import Path
+
+# Add src directory to path
+SRC_DIR = Path(__file__).parent
+sys.path.insert(0, str(SRC_DIR))
+
+from version import version_manager, get_version_info, check_for_updates
+from update_manager import update_manager
+
+def show_version_info():
+    """Display version information"""
+    info = get_version_info()
+    
+    print(f"\n🔧 Dagr Version Information")
+    print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print(f"Current Version: {info['version']}")
+    if info['git_commit']:
+        print(f"Git Commit: {info['git_commit']}")
+    if info['build_date']:
+        print(f"Build Date: {info['build_date']}")
+    print(f"Update Channel: {info['update_channel']}")
+    
+    if info['available_version']:
+        if info['update_available']:
+            print(f"📦 Update Available: {info['available_version']}")
+        else:
+            print(f"✅ Up to date (latest: {info['available_version']})")
+    
+    if info['last_update_check']:
+        print(f"Last Check: {info['last_update_check']}")
+
+def check_updates():
+    """Check for available updates"""
+    print("🔍 Checking for updates...")
+    
+    result = check_for_updates()
+    
+    if "error" in result:
+        print(f"❌ Error: {result['error']}")
+        return
+    
+    print(f"\nCurrent Version: {result['current_version']}")
+    print(f"Remote Version: {result['remote_version']}")
+    
+    if result['update_available']:
+        print(f"✨ Update available: {result['remote_version']}")
+        if result.get('release_notes'):
+            print(f"\nRelease Notes:")
+            print(result['release_notes'])
+        
+        if result.get('download_url'):
+            answer = input(f"\nDownload and install update? [y/N]: ").strip().lower()
+            if answer == 'y':
+                perform_update(result['download_url'])
+    else:
+        print("✅ You are running the latest version")
+
+def perform_update(download_url: str):
+    """Perform system update"""
+    print(f"📦 Starting update process...")
+    
+    result = update_manager.perform_update(download_url)
+    
+    if result['success']:
+        print(f"✅ Update completed successfully!")
+        print(f"New version: {result['new_version']}")
+        
+        if update_manager.update_config.get('restart_after_update', True):
+            print("🔄 Services will be restarted automatically")
+        else:
+            print("⚠️  Please restart the Dagr service manually")
+    else:
+        print(f"❌ Update failed: {result['error']}")
+
+def create_backup():
+    """Create a backup"""
+    print("💾 Creating backup...")
+    
+    try:
+        backup_path = update_manager.create_backup()
+        print(f"✅ Backup created: {backup_path.name}")
+    except Exception as e:
+        print(f"❌ Backup failed: {e}")
+
+def list_backups():
+    """List available backups"""
+    backups = update_manager.list_backups()
+    
+    if not backups:
+        print("No backups found")
+        return
+    
+    print(f"\n💾 Available Backups")
+    print(f"━━━━━━━━━━━━━━━━━━━━━━━━")
+    for backup in backups:
+        print(f"Name: {backup['name']}")
+        print(f"  Version: {backup['version']}")
+        print(f"  Date: {backup['date']}")
+        if backup['git_commit']:
+            print(f"  Commit: {backup['git_commit']}")
+        print(f"  Files: {backup['file_count']}")
+        print()
+
+def rollback_backup(backup_name: str):
+    """Rollback to a backup"""
+    print(f"🔄 Rolling back to backup: {backup_name}")
+    
+    if update_manager.rollback_to_backup(backup_name):
+        print("✅ Rollback completed successfully")
+    else:
+        print("❌ Rollback failed")
+
+def show_update_config():
+    """Show update configuration"""
+    config = update_manager.update_config
+    
+    print(f"\n⚙️  Update Configuration")
+    print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print(f"Auto Update: {config.get('auto_update', False)}")
+    print(f"Update Channel: {config.get('update_channel', 'stable')}")
+    print(f"Backup Before Update: {config.get('backup_before_update', True)}")
+    print(f"Restart After Update: {config.get('restart_after_update', True)}")
+    print(f"Update URL: {config.get('update_url', 'Not configured')}")
+
+def main():
+    """Main CLI function"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Dagr Update Management CLI")
+    parser.add_argument("--version", action="store_true", help="Show version information")
+    parser.add_argument("--check", action="store_true", help="Check for updates")
+    parser.add_argument("--update", metavar="URL", help="Download and install update from URL")
+    parser.add_argument("--backup", action="store_true", help="Create backup")
+    parser.add_argument("--list-backups", action="store_true", help="List available backups")
+    parser.add_argument("--rollback", metavar="BACKUP_NAME", help="Rollback to backup")
+    parser.add_argument("--config", action="store_true", help="Show update configuration")
+    
+    args = parser.parse_args()
+    
+    # If no arguments, show version info
+    if not any(vars(args).values()):
+        args.version = True
+    
+    try:
+        if args.version:
+            show_version_info()
+        
+        if args.check:
+            check_updates()
+        
+        if args.update:
+            perform_update(args.update)
+        
+        if args.backup:
+            create_backup()
+        
+        if args.list_backups:
+            list_backups()
+        
+        if args.rollback:
+            rollback_backup(args.rollback)
+        
+        if args.config:
+            show_update_config()
+            
+    except KeyboardInterrupt:
+        print("\n⏹️  Operation cancelled")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
