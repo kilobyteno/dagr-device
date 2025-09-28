@@ -84,8 +84,17 @@ def test_python_imports():
     success_count = 0
     for module_name, description in modules_to_test:
         try:
-            __import__(module_name)
+            module = __import__(module_name)
             print(f"✅ {description}: Import successful")
+            
+            # Special test for version module
+            if module_name == "version" and hasattr(module, 'get_version'):
+                try:
+                    version = module.get_version()
+                    print(f"   📍 Current version: {version}")
+                except Exception as e:
+                    print(f"   ⚠️  Could not get version: {e}")
+            
             success_count += 1
         except ImportError as e:
             print(f"❌ {description}: Import failed - {e}")
@@ -126,6 +135,51 @@ def test_configuration():
         return False
     except Exception as e:
         print(f"❌ Configuration file error: {e}")
+        return False
+
+def test_version_consistency():
+    """Test version consistency across the system"""
+    install_root = Path("/usr/local/dagr")
+    version_file = install_root / "VERSION"
+    src_dir = install_root / "src"
+    
+    if not version_file.exists():
+        print("❌ VERSION file not found")
+        return False
+    
+    try:
+        # Read VERSION file
+        with open(version_file, 'r') as f:
+            file_version = f.read().strip()
+        print(f"📄 VERSION file: {file_version}")
+        
+        # Test version module if available
+        if src_dir.exists():
+            sys.path.insert(0, str(src_dir))
+            try:
+                from version import get_version
+                module_version = get_version()
+                print(f"🐍 Version module: {module_version}")
+                
+                if file_version == module_version:
+                    print("✅ Version consistency: FILE ↔ MODULE")
+                    return True
+                else:
+                    print(f"❌ Version mismatch: FILE({file_version}) ≠ MODULE({module_version})")
+                    return False
+                    
+            except ImportError:
+                print("⚠️  Could not import version module")
+                return False
+            except Exception as e:
+                print(f"⚠️  Version module error: {e}")
+                return False
+        else:
+            print("⚠️  Source directory not found, cannot test version module")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Version consistency test failed: {e}")
         return False
 
 def main():
@@ -188,6 +242,12 @@ def main():
     # Test Python imports (only if source exists)
     print("\n🐍 Python Import Tests:")
     if test_python_imports():
+        tests_passed += 1
+    total_tests += 1
+    
+    # Test version consistency
+    print("\n🔢 Version Consistency Tests:")
+    if test_version_consistency():
         tests_passed += 1
     total_tests += 1
     

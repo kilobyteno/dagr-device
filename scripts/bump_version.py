@@ -85,6 +85,9 @@ def main():
         # Update other version references if needed
         update_references(project_root, current_version, new_version)
         
+        # Verify the version system is working
+        verify_version_system(project_root, new_version)
+        
     except ValueError as e:
         print(f"❌ Error: {e}")
         sys.exit(1)
@@ -94,7 +97,6 @@ def update_references(project_root, old_version, new_version):
     
     # Files that might contain version references
     files_to_check = [
-        "src/dagr.py",
         "install/dagr.service", 
         "README.md"
     ]
@@ -124,6 +126,37 @@ def update_references(project_root, old_version, new_version):
     
     if updated_files:
         print(f"📝 Updated version references in: {', '.join(updated_files)}")
+    
+    # Note: src/dagr.py now uses get_version() dynamically, so no need to update it
+
+def verify_version_system(project_root, expected_version):
+    """Verify that the version system is working correctly"""
+    print("\n🔍 Verifying version system...")
+    
+    try:
+        # Add src to path temporarily
+        import sys
+        src_path = str(project_root / "src")
+        if src_path not in sys.path:
+            sys.path.insert(0, src_path)
+        
+        # Try to import and get version
+        from version import get_version
+        actual_version = get_version()
+        
+        if actual_version == expected_version:
+            print(f"✅ Version system working correctly: {actual_version}")
+        else:
+            print(f"⚠️  Version mismatch - Expected: {expected_version}, Got: {actual_version}")
+        
+        # Clean up path
+        if src_path in sys.path:
+            sys.path.remove(src_path)
+            
+    except ImportError as e:
+        print(f"⚠️  Could not verify version system: {e}")
+    except Exception as e:
+        print(f"⚠️  Version system verification failed: {e}")
 
 if __name__ == "__main__":
     main()

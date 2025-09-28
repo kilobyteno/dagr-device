@@ -221,7 +221,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Dagr",
     description="Device",
-    version="1.0.0",
+    version=get_version(),
     lifespan=lifespan
 )
 

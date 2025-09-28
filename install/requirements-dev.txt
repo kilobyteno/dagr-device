@@ -36,3 +36,6 @@ python-crontab>=2.7.0
 # Development and testing tools
 pre-commit~=3.7.0
 ruff~=0.8.2
+
+# Version management and updates
+packaging>=23.0

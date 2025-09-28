@@ -19,7 +19,15 @@ class VersionManager:
     """Manages version information and updates for Dagr"""
     
     def __init__(self):
-        self.project_root = Path(os.getenv("PROJECT_DIR", "/usr/local/dagr"))
+        # Determine if we're in development or production
+        current_file = Path(__file__)
+        if current_file.parent.name == "src" and (current_file.parent.parent / "VERSION").exists():
+            # Development environment - use relative paths
+            self.project_root = current_file.parent.parent
+        else:
+            # Production environment - use standard paths
+            self.project_root = Path(os.getenv("PROJECT_DIR", "/usr/local/dagr"))
+        
         self.src_dir = Path(os.getenv("SRC_DIR", self.project_root / "src"))
         self.config_dir = Path(os.getenv("DAGR_CONFIG_DIR", self.project_root / "config"))
         
