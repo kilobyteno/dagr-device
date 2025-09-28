@@ -16,7 +16,7 @@ from datetime import datetime
 
 try:
     from PIL import Image, ImageDraw, ImageFont
-    from inky import InkyWHAT, InkyPHAT
+    from inky.auto import auto
     import numpy as np
 except ImportError as e:
     print(f"Warning: Display dependencies not available: {e}")
@@ -86,19 +86,14 @@ class DisplayManager:
         try:
             display_config = self.config.get("display", {})
             
-            # Try to detect and initialize display
+            # Auto-detect and initialize display
             try:
-                # Try InkyWHAT first (larger display)
-                self.display = InkyWHAT("red")
-                logger.info("InkyWHAT display initialized")
-            except:
-                try:
-                    # Fall back to InkyPHAT (smaller display)
-                    self.display = InkyPHAT("red")
-                    logger.info("InkyPHAT display initialized")
-                except:
-                    logger.warning("No physical e-ink display found, running in simulation mode")
-                    self.display = None
+                self.display = auto()
+                logger.info(f"Auto-detected display: {type(self.display).__name__}")
+            except Exception as e:
+                logger.warning(f"No physical e-ink display found: {e}")
+                logger.info("Running in simulation mode")
+                self.display = None
             
             if self.display:
                 # Configure display orientation
