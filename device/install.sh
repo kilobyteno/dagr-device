@@ -379,13 +379,42 @@ setup_python_environment(){
 
 install_dagr_service() {
   info "Installing system service"
+  verbose "Service source: $DAGR_SERVICE_SOURCE"
+  verbose "Service target: $DAGR_SERVICE_TARGET"
+  
   if [ -f "$DAGR_SERVICE_SOURCE" ]; then
+    # Ensure SPI reset script exists before installing service
+    local spi_script="$DAGR_INSTALL_ROOT/scripts/spi_reset.sh"
+    if [ ! -f "$spi_script" ]; then
+      verbose "SPI reset script not found, creating fallback version..."
+      mkdir -p "$DAGR_INSTALL_ROOT/scripts"
+      cat > "$spi_script" << 'EOF'
+#!/bin/bash
+# Fallback SPI reset script
+echo "$(date '+%Y-%m-%d %H:%M:%S') - SPI reset requested" | tee -a /var/log/dagr-spi-reset.log
+# Simple SPI module reset
+modprobe -r spi_bcm2835 2>/dev/null || true
+sleep 0.5
+modprobe spi_bcm2835 2>/dev/null || true
+echo "$(date '+%Y-%m-%d %H:%M:%S') - SPI reset completed" | tee -a /var/log/dagr-spi-reset.log
+EOF
+      chmod +x "$spi_script"
+      chown root:root "$spi_script"
+      debug "Created fallback SPI reset script at $spi_script"
+    fi
+    
+    verbose "Copying service file..."
     cp "$DAGR_SERVICE_SOURCE" "$DAGR_SERVICE_TARGET"
+    
+    verbose "Reloading systemd daemon..."
     sudo systemctl daemon-reload
+    
+    verbose "Enabling service..."
     sudo systemctl enable $DAGR_SERVICE_NAME
     success "Service installed and enabled"
   else
     error "Service file not found: $DAGR_SERVICE_SOURCE"
+    debug "Checked path: $DAGR_SERVICE_SOURCE"
     exit 1
   fi
 }

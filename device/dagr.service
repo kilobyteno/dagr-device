@@ -15,8 +15,8 @@ Environment=DAGR_CONFIG_DIR=/usr/local/dagr/config
 Environment=PROJECT_DIR=/usr/local/dagr
 Environment=SRC_DIR=/usr/local/dagr/src
 
-# Pre-start script to reset SPI interface
-ExecStartPre=/usr/local/dagr/scripts/spi_reset.sh start
+# Pre-start script to reset SPI interface (optional - won't fail if missing)
+ExecStartPre=-/usr/local/dagr/scripts/spi_reset.sh start
 ExecStart=/usr/local/dagr/.venv/bin/python dagr.py
 ExecReload=/bin/kill -HUP $MAINPID
 
