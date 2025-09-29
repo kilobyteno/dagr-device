@@ -1,7 +1,7 @@
 [Unit]
 Description=Dagr
 Documentation=https://github.com/kilobytno/dagr-device
-After=network-online.target
+After=network-online.target systemd-modules-load.service
 Wants=network-online.target
 
 [Service]
@@ -10,8 +10,14 @@ User=root
 Group=root
 RuntimeDirectory=dagr
 RuntimeDirectoryMode=0755
-WorkingDirectory=/run/dagr
-ExecStart=/usr/local/bin/dagr
+WorkingDirectory=/usr/local/dagr/src
+Environment=DAGR_CONFIG_DIR=/usr/local/dagr/config
+Environment=PROJECT_DIR=/usr/local/dagr
+Environment=SRC_DIR=/usr/local/dagr/src
+
+# Pre-start script to reset SPI interface
+ExecStartPre=/usr/local/dagr/scripts/spi_reset.sh start
+ExecStart=/usr/local/dagr/.venv/bin/python dagr.py
 ExecReload=/bin/kill -HUP $MAINPID
 
 # Logging
@@ -19,23 +25,26 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=dagr
 
-# Resource limits
-CPUQuota=40%
-MemoryMax=150M
-TasksMax=50
+# Resource limits (relaxed for display operations)
+CPUQuota=60%
+MemoryMax=200M
+TasksMax=100
 
-# Restart policy
-Restart=on-failure
-RestartSec=30
-StartLimitBurst=3
+# Restart policy (more aggressive for SPI conflicts)
+Restart=always
+RestartSec=15
+StartLimitBurst=5
 StartLimitIntervalSec=300
 
-# Security
-NoNewPrivileges=true
+# Security (relaxed for GPIO/SPI access)
+NoNewPrivileges=false
 PrivateTmp=true
-ProtectSystem=strict
+ProtectSystem=false
 ProtectHome=true
-ReadWritePaths=/run/dagr /usr/local/dagr /usr/local/dagr/config /usr/local/dagr/src
+ReadWritePaths=/run/dagr /usr/local/dagr /usr/local/dagr/config /usr/local/dagr/src /dev/spidev0.0 /dev/spidev0.1 /dev/gpiomem /sys/class/gpio /sys/bus/spi /var/log
+
+# Additional permissions for SPI/GPIO access
+SupplementaryGroups=spi gpio i2c
 
 # Signal handling
 KillMode=mixed

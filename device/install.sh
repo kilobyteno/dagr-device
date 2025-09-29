@@ -306,10 +306,19 @@ setup_dagr_directories() {
     cp -r "$DAGR_SOURCE_DIR" "$DAGR_INSTALL_ROOT/"
     success "Source code copied to $DAGR_INSTALL_ROOT/src"
     
+    # Copy scripts directory
+    if [[ -d "$SCRIPT_DIR/scripts" ]]; then
+      cp -r "$SCRIPT_DIR/scripts" "$DAGR_INSTALL_ROOT/"
+      success "Scripts copied to $DAGR_INSTALL_ROOT/scripts"
+    fi
+    
     # Set proper ownership and permissions
     chown -R root:root "$DAGR_INSTALL_ROOT/src"
+    chown -R root:root "$DAGR_INSTALL_ROOT/scripts" 2>/dev/null || true
     find "$DAGR_INSTALL_ROOT/src" -type f -name "*.py" -exec chmod 644 {} \;
     find "$DAGR_INSTALL_ROOT/src" -type f \( -name "dagr_*" -o -name "*.sh" \) -exec chmod 755 {} \;
+    find "$DAGR_INSTALL_ROOT/scripts" -type f -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
+    find "$DAGR_INSTALL_ROOT/scripts" -type f -name "*.py" -exec chmod 755 {} \; 2>/dev/null || true
     success "Permissions set correctly"
   else
     error "Source directory not found: $DAGR_SOURCE_DIR"

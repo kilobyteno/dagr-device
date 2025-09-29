@@ -182,47 +182,85 @@ class DisplayManager:
             
             logger.info("Attempting to resolve GPIO conflict for display update...")
             
-            # Method 1: Try to release GPIO pins that might be in use
-            gpio_pins_to_release = [8, 7, 10, 11, 25]  # Common SPI and display pins
-            for pin in gpio_pins_to_release:
-                try:
-                    # Try to unexport the pin if it's exported
-                    with open(f"/sys/class/gpio/unexport", "w") as f:
-                        f.write(str(pin))
-                    logger.debug(f"Released GPIO pin {pin}")
-                except:
-                    pass  # Pin might not be exported, which is fine
-            
-            time.sleep(0.2)
-            
-            # Method 2: Try to temporarily disable and re-enable SPI
+            # Method 1: Reset SPI interface completely
             try:
-                logger.debug("Temporarily managing SPI for display update...")
+                logger.info("Resetting SPI interface...")
                 
-                # Disable SPI briefly
-                result = subprocess.run(
-                    ["sudo", "modprobe", "-r", "spi_bcm2835"], 
-                    capture_output=True, text=True, timeout=5
-                )
+                # Stop any processes that might be using SPI
+                subprocess.run(["sudo", "pkill", "-f", "spi"], capture_output=True, timeout=5)
+                time.sleep(0.5)
                 
-                time.sleep(0.1)
+                # Unbind SPI devices
+                spi_devices = ["/sys/bus/spi/drivers/spi-bcm2835/20204000.spi"]
+                for device in spi_devices:
+                    try:
+                        if Path(device).exists():
+                            with open(f"{device}/unbind", "w") as f:
+                                f.write("20204000.spi")
+                            logger.debug("Unbound SPI device")
+                            time.sleep(0.2)
+                    except Exception:
+                        pass
                 
-                # Re-enable SPI
-                subprocess.run(
-                    ["sudo", "modprobe", "spi_bcm2835"], 
-                    capture_output=True, text=True, timeout=5
-                )
+                # Remove and reload SPI modules
+                spi_modules = ["spi_bcm2835", "spi_bcm2835aux"]
+                for module in spi_modules:
+                    try:
+                        subprocess.run(["sudo", "modprobe", "-r", module], 
+                                     capture_output=True, timeout=5)
+                        logger.debug(f"Removed module {module}")
+                    except Exception:
+                        pass
                 
-                time.sleep(0.2)
-                logger.info("GPIO conflict resolution completed")
+                time.sleep(0.5)
+                
+                # Reload SPI modules
+                for module in spi_modules:
+                    try:
+                        subprocess.run(["sudo", "modprobe", module], 
+                                     capture_output=True, timeout=5)
+                        logger.debug(f"Loaded module {module}")
+                    except Exception:
+                        pass
+                
+                time.sleep(1.0)
+                
+                # Rebind SPI devices
+                for device in spi_devices:
+                    try:
+                        if Path(device.replace("/unbind", "/bind")).exists():
+                            with open(f"{device.replace('/unbind', '/bind')}", "w") as f:
+                                f.write("20204000.spi")
+                            logger.debug("Rebound SPI device")
+                            time.sleep(0.2)
+                    except Exception:
+                        pass
+                
+                logger.info("SPI interface reset completed")
                 return True
                 
             except subprocess.TimeoutExpired:
-                logger.warning("SPI module management timed out")
+                logger.warning("SPI reset timed out")
                 return False
             except Exception as spi_e:
-                logger.warning(f"SPI module management failed: {spi_e}")
-                return False
+                logger.warning(f"SPI reset failed: {spi_e}")
+                
+                # Fallback: Try simple GPIO release
+                logger.info("Trying fallback GPIO release...")
+                gpio_pins_to_release = [8, 7, 10, 11, 25]  # Common SPI and display pins
+                for pin in gpio_pins_to_release:
+                    try:
+                        # Try to unexport the pin if it's exported
+                        if Path(f"/sys/class/gpio/gpio{pin}").exists():
+                            with open(f"/sys/class/gpio/unexport", "w") as f:
+                                f.write(str(pin))
+                            logger.debug(f"Released GPIO pin {pin}")
+                            time.sleep(0.1)
+                    except Exception:
+                        pass  # Pin might not be exported, which is fine
+                
+                time.sleep(0.5)
+                return True
                 
         except Exception as e:
             logger.error(f"GPIO conflict resolution failed: {e}")
