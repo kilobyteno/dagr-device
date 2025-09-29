@@ -24,7 +24,7 @@ SCRIPT_DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 
 DAGR_APP_NAME="dagr"
 DAGR_INSTALL_ROOT="/usr/local/$DAGR_APP_NAME"
-DAGR_SOURCE_DIR="$SCRIPT_DIR/../src"
+DAGR_SOURCE_DIR="$SCRIPT_DIR/src"
 DAGR_BIN_DIR="/usr/local/bin"
 DAGR_VENV_DIR="$DAGR_INSTALL_ROOT/.venv"
 
