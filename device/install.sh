@@ -99,20 +99,35 @@ enable_system_interfaces() {
 
 spinner() {
   local pid=$!
-  local delay=0.1
+  local delay=0.2
   local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
   local i=0
+  local timeout=300  # 5 minute timeout
+  local count=0
+  
   printf "  %s " "$1"
-  while ps a | awk '{print $1}' | grep -q "${pid}"; do
+  while kill -0 $pid 2>/dev/null; do
     printf "\r  %s %c" "$1" "${spinstr:$i:1}"
     i=$(( (i+1) % ${#spinstr} ))
     sleep ${delay}
+    count=$((count + 1))
+    
+    # Timeout after 5 minutes
+    if [ $count -gt $((timeout / delay)) ]; then
+      kill $pid 2>/dev/null
+      printf "\r  %s ⚠ (timeout)\n" "$1"
+      return 1
+    fi
   done
-  if [[ $? -eq 0 ]]; then
+  
+  wait $pid
+  local exit_code=$?
+  if [[ $exit_code -eq 0 ]]; then
     printf "\r  %s ✓\n" "$1"
   else
     printf "\r  %s ✗\n" "$1"
   fi
+  return $exit_code
 }
 
 success() {
@@ -139,11 +154,23 @@ highlight() {
 install_system_dependencies() {
   if [ -f "$DAGR_OS_DEPS_FILE" ]; then
     info "Installing system dependencies"
-    sudo apt-get update > /dev/null &
-    spinner "Updating package repositories"
+    
+    # Update package repositories with timeout
+    info "Updating package repositories..."
+    if timeout 300 sudo apt-get update > /dev/null 2>&1; then
+      success "Package repositories updated"
+    else
+      info "Package update took longer than expected, continuing..."
+    fi
 
-    xargs -a "$DAGR_OS_DEPS_FILE" sudo apt-get install -y > /dev/null &
-    spinner "Installing system packages"
+    # Install packages with progress indication
+    info "Installing system packages..."
+    if xargs -a "$DAGR_OS_DEPS_FILE" sudo apt-get install -y > /dev/null 2>&1; then
+      success "System packages installed"
+    else
+      error "Failed to install some system packages"
+      info "Continuing with installation..."
+    fi
   else
     error "System dependencies file not found: $DAGR_OS_DEPS_FILE"
     exit 1
@@ -175,17 +202,31 @@ setup_python_environment(){
   info "Setting up Python environment"
   
   # Create virtual environment
-  python3 -m venv "$DAGR_VENV_DIR"
-  success "Virtual environment created"
+  info "Creating Python virtual environment..."
+  if python3 -m venv "$DAGR_VENV_DIR"; then
+    success "Virtual environment created"
+  else
+    error "Failed to create virtual environment"
+    exit 1
+  fi
   
   # Upgrade pip and core tools
-  $DAGR_VENV_DIR/bin/python -m pip install --upgrade pip setuptools wheel > /dev/null &
-  spinner "Upgrading pip and tools"
+  info "Upgrading pip and tools..."
+  if timeout 180 $DAGR_VENV_DIR/bin/python -m pip install --upgrade pip setuptools wheel > /dev/null 2>&1; then
+    success "Pip and tools upgraded"
+  else
+    info "Pip upgrade took longer than expected, continuing..."
+  fi
 
   # Install project dependencies
   if [ -f "$DAGR_PY_DEPS_FILE" ]; then
-    $DAGR_VENV_DIR/bin/python -m pip install -r $DAGR_PY_DEPS_FILE > /dev/null &
-    spinner "Installing Python packages"
+    info "Installing Python packages..."
+    if timeout 600 $DAGR_VENV_DIR/bin/python -m pip install -r $DAGR_PY_DEPS_FILE > /dev/null 2>&1; then
+      success "Python packages installed"
+    else
+      error "Failed to install Python packages or timeout occurred"
+      info "You may need to install packages manually later"
+    fi
   else
     info "No Python dependencies file found, skipping"
   fi
@@ -231,8 +272,11 @@ setup_dagr_configuration() {
 stop_dagr_service() {
     if /usr/bin/systemctl is-active --quiet $DAGR_SERVICE_NAME 2>/dev/null; then
       info "Stopping existing service"
-      /usr/bin/systemctl stop $DAGR_SERVICE_NAME > /dev/null &
-      spinner "Stopping service"
+      if timeout 30 sudo systemctl stop $DAGR_SERVICE_NAME; then
+        success "Service stopped"
+      else
+        info "Service stop timeout, continuing..."
+      fi
     else  
       info "No existing service running"
     fi
