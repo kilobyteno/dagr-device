@@ -18,9 +18,11 @@ try:
     from PIL import Image, ImageDraw, ImageFont
     from inky.auto import auto
     import numpy as np
+    INKY_AVAILABLE = True
 except ImportError as e:
-    print(f"Warning: Display dependencies not available: {e}")
+    print(f"Warning: Inky display dependencies not available: {e}")
     print("Running in simulation mode")
+    INKY_AVAILABLE = False
 
 # Configuration
 PROJECT_DIR = Path(os.getenv("PROJECT_DIR", "/usr/local/dagr"))
@@ -85,67 +87,92 @@ class DisplayManager:
         """Initialize the e-ink display"""
         display_config = self.config.get("display", {})
         
-        # Auto-detect and initialize display
-        try:
-            logger.info("Attempting to auto-detect display...")
-            
-            # Check for required device files
-            device_files_to_check = [
-                "/dev/spidev0.0",
-                "/dev/spidev0.1", 
-                "/dev/gpiomem",
-                "/sys/class/gpio"
-            ]
-            
-            for device_file in device_files_to_check:
-                if Path(device_file).exists():
-                    logger.info(f"Device file exists: {device_file}")
-                else:
-                    logger.warning(f"Device file missing: {device_file}")
-            
-            self.display = auto()
-            logger.info(f"Auto-detected display: {type(self.display).__name__}")
-            logger.info(f"Display model: {getattr(self.display, '_model', 'Unknown')}")
-            logger.info(f"Display resolution: {self.display.width}x{self.display.height}")
-            logger.info(f"Display color mode: {self.display.colour}")
-        except SystemExit as e:
-            if "pins we need are in use" in str(e):
-                logger.error(f"GPIO pin conflict detected: {e}")
-                logger.error("This indicates SPI interface configuration issues.")
-                logger.error("The system needs proper SPI configuration for this display model.")
-                logger.info("Please ensure SPI is properly configured in /boot/firmware/config.txt")
-                logger.info("Running in simulation mode due to GPIO conflict")
-                self.display = None
-                return
-            else:
-                logger.warning(f"System exit during display detection: {e}")
-                self.display = None
-                return
-        except Exception as e:
-            logger.warning(f"No physical e-ink display found: {e}")
-            logger.info("Running in simulation mode")
-            self.display = None
-            return
+        # Check for required device files first
+        device_files_to_check = [
+            "/dev/spidev0.0",
+            "/dev/spidev0.1", 
+            "/dev/gpiomem",
+            "/sys/class/gpio"
+        ]
         
-        # Configure display orientation
-        if self.display:
-            orientation = display_config.get("orientation", "landscape")
+        missing_files = []
+        for device_file in device_files_to_check:
+            if Path(device_file).exists():
+                logger.info(f"Device file exists: {device_file}")
+            else:
+                logger.warning(f"Device file missing: {device_file}")
+                missing_files.append(device_file)
+        
+        if missing_files:
+            logger.warning(f"Missing device files: {missing_files}")
+            logger.info("This might indicate SPI interface is not enabled")
+        
+        # Try Inky display detection
+        if INKY_AVAILABLE:
             try:
-                if orientation == "portrait":
-                    if hasattr(self.display, 'set_rotation'):
-                        self.display.set_rotation(90)
-                    elif hasattr(self.display, 'rotation'):
-                        self.display.rotation = 90
+                logger.info("Attempting Inky display auto-detection...")
+                self.display = auto()
+                logger.info(f"✅ Inky display detected: {type(self.display).__name__}")
+                logger.info(f"Display model: {getattr(self.display, '_model', 'Unknown')}")
+                logger.info(f"Display resolution: {self.display.width}x{self.display.height}")
+                logger.info(f"Display color mode: {self.display.colour}")
+                self._configure_display_orientation()
+                return
+            except SystemExit as e:
+                if "pins we need are in use" in str(e):
+                    logger.error(f"GPIO pin conflict detected: {e}")
+                    logger.error("This indicates SPI interface configuration issues.")
+                    logger.info("Attempting GPIO conflict resolution...")
+                    
+                    # Try to resolve conflict and retry once
+                    if self._resolve_display_gpio_conflict():
+                        try:
+                            logger.info("Retrying Inky display detection after conflict resolution...")
+                            self.display = auto()
+                            logger.info(f"✅ Inky display detected after resolution: {type(self.display).__name__}")
+                            self._configure_display_orientation()
+                            return
+                        except Exception as retry_e:
+                            logger.warning(f"Inky display still failed after conflict resolution: {retry_e}")
+                    
+                    logger.info("Running in simulation mode due to GPIO conflict")
+                    self.display = None
+                    return
                 else:
-                    if hasattr(self.display, 'set_rotation'):
-                        self.display.set_rotation(0)
-                    elif hasattr(self.display, 'rotation'):
-                        self.display.rotation = 0
-                logger.info(f"Display orientation set to: {orientation}")
+                    logger.warning(f"System exit during Inky display detection: {e}")
             except Exception as e:
-                logger.warning(f"Could not set display orientation: {e}")
+                logger.warning(f"Inky display detection failed: {e}")
+        
+        # No display detected - run in simulation mode
+        logger.warning("No physical Inky display detected")
+        logger.info("Running in simulation mode")
+        self.display = None
+    
+    
+    def _configure_display_orientation(self):
+        """Configure display orientation after successful initialization"""
+        if not self.display:
+            return
             
-            logger.info(f"Display configured: {self.display.width}x{self.display.height}")
+        display_config = self.config.get("display", {})
+        orientation = display_config.get("orientation", "landscape")
+        
+        try:
+            if orientation == "portrait":
+                if hasattr(self.display, 'set_rotation'):
+                    self.display.set_rotation(90)
+                elif hasattr(self.display, 'rotation'):
+                    self.display.rotation = 90
+            else:
+                if hasattr(self.display, 'set_rotation'):
+                    self.display.set_rotation(0)
+                elif hasattr(self.display, 'rotation'):
+                    self.display.rotation = 0
+            logger.info(f"Display orientation set to: {orientation}")
+        except Exception as e:
+            logger.warning(f"Could not set display orientation: {e}")
+        
+        logger.info(f"Display configured: {self.display.width}x{self.display.height}")
     
     def _resolve_display_gpio_conflict(self) -> bool:
         """Resolve GPIO conflicts during display operations"""
@@ -426,15 +453,15 @@ class DisplayManager:
                 logger.info("Simulation mode: Would display image")
                 return True
             
-            logger.info(f"Setting image on display (type: {type(self.display).__name__})")
+            display_type = type(self.display).__name__
+            logger.info(f"Setting image on display (type: {display_type})")
             
-            # Set image to display
+            # Inky displays use set_image/show pattern
             try:
                 self.display.set_image(image)
                 logger.info("Image set on display successfully")
             except Exception as e:
                 logger.error(f"Failed to set image on display: {e}")
-                logger.error(f"Error type: {type(e).__name__}")
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 raise
@@ -467,7 +494,6 @@ class DisplayManager:
                     raise
             except Exception as e:
                 logger.error(f"Failed to show image on display: {e}")
-                logger.error(f"Error type: {type(e).__name__}")
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 raise
@@ -623,6 +649,8 @@ class DisplayManager:
         print(f"Display: {'Connected' if self.display else 'Simulation Mode'}")
         if self.display:
             print(f"Resolution: {self.display.width}x{self.display.height}")
+            print(f"Display Type: {type(self.display).__name__}")
+            print(f"Color Mode: {getattr(self.display, 'colour', 'Unknown')}")
         print(f"Demo Images: {len(images)} found")
         for i, img in enumerate(images):
             marker = "→" if i == self.current_image_index else " "
@@ -631,6 +659,22 @@ class DisplayManager:
         print(f"Interval: {self.rotation_interval} seconds (3 minutes)")
         print(f"Demo Directory: {DEMO_DIR}")
         print(f"Log File: {LOG_FILE}")
+        
+    def get_status_dict(self):
+        """Get status as dictionary for API responses"""
+        images = self.get_demo_images()
+        return {
+            "display_connected": self.display is not None,
+            "display_type": type(self.display).__name__ if self.display else "None",
+            "display_resolution": f"{self.display.width}x{self.display.height}" if self.display else "Unknown",
+            "color_mode": getattr(self.display, 'colour', 'Unknown') if self.display else "Unknown",
+            "rotation_running": self.running,
+            "rotation_interval": self.rotation_interval,
+            "current_image_index": self.current_image_index,
+            "total_images": len(images),
+            "images": [img.name for img in images],
+            "demo_directory": str(DEMO_DIR)
+        }
 
 def main():
     """Main function"""

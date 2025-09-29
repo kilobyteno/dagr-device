@@ -45,27 +45,55 @@ check_sudo_permissions() {
 
 
 enable_system_interfaces() {
-  info "Configuring system interfaces"
+  info "Configuring system interfaces for e-ink displays"
   
-  # Configure SPI for e-ink display communication (InkyPi approach)
+  # Check if we're on a Raspberry Pi
+  if [ ! -f "/boot/firmware/config.txt" ] && [ ! -f "/boot/config.txt" ]; then
+    info "Not running on Raspberry Pi - skipping hardware interface configuration"
+    return
+  fi
+  
+  # Determine config file location
+  CONFIG_FILE="/boot/firmware/config.txt"
+  if [ ! -f "$CONFIG_FILE" ]; then
+    CONFIG_FILE="/boot/config.txt"
+  fi
+  
+  info "Using config file: $CONFIG_FILE"
+  
+  # Configure SPI for e-ink display communication
   # Enable SPI interface as required by Inky displays
-  if grep -q "^dtparam=spi=on" /boot/firmware/config.txt; then
+  if grep -q "^dtparam=spi=on" "$CONFIG_FILE"; then
     success "SPI interface already enabled"
-  elif grep -q "^#dtparam=spi=on" /boot/firmware/config.txt; then
-    info "Enabling SPI interface for Inky display"
-    sed -i 's/^#dtparam=spi=on/dtparam=spi=on/' /boot/firmware/config.txt
+  elif grep -q "^#dtparam=spi=on" "$CONFIG_FILE"; then
+    info "Enabling SPI interface for e-ink displays"
+    sed -i 's/^#dtparam=spi=on/dtparam=spi=on/' "$CONFIG_FILE"
     success "SPI interface enabled"
   else
-    echo "dtparam=spi=on" | sudo tee -a /boot/firmware/config.txt > /dev/null
+    echo "dtparam=spi=on" | sudo tee -a "$CONFIG_FILE" > /dev/null
     success "SPI interface enabled"
   fi
   
   # Enable I2C interface for sensors and additional peripherals
-  if grep -q "^dtparam=i2c_arm=on" /boot/firmware/config.txt; then
+  if grep -q "^dtparam=i2c_arm=on" "$CONFIG_FILE"; then
     success "I2C interface already enabled"
-  else
-    echo "dtparam=i2c_arm=on" | sudo tee -a /boot/firmware/config.txt > /dev/null
+  elif grep -q "^#dtparam=i2c_arm=on" "$CONFIG_FILE"; then
+    sed -i 's/^#dtparam=i2c_arm=on/dtparam=i2c_arm=on/' "$CONFIG_FILE"
     success "I2C interface enabled"
+  else
+    echo "dtparam=i2c_arm=on" | sudo tee -a "$CONFIG_FILE" > /dev/null
+    success "I2C interface enabled"
+  fi
+  
+  # Add GPIO permissions for display access
+  if ! grep -q "^gpio" /etc/group; then
+    sudo groupadd gpio 2>/dev/null || true
+  fi
+  
+  # Add current user to gpio group for display access
+  if [ -n "$SUDO_USER" ]; then
+    sudo usermod -a -G gpio,spi,i2c "$SUDO_USER" 2>/dev/null || true
+    success "User permissions configured for display access"
   fi
 }
 
