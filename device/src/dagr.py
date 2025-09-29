@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any
 from contextlib import asynccontextmanager
 
 import requests
-from fastapi import FastAPI, Form, Request, HTTPException, Depends, status
+from fastapi import FastAPI, Form, Request, HTTPException, Depends, status, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -290,14 +290,26 @@ login_template = '''
         
         <div class="display-controls" style="margin-top: 30px;">
             <h2>Display Management</h2>
-            <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+            <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
                 <button onclick="nextImage()" class="btn-small">Next Image</button>
                 <button onclick="startRotation()" class="btn-small">Start Rotation</button>
                 <button onclick="stopRotation()" class="btn-small btn-danger">Stop Rotation</button>
                 <button onclick="refreshStatus()" class="btn-small">Refresh Status</button>
             </div>
-            <div id="display-status" style="background: #f8f9fa; padding: 15px; border-radius: 5px;">
+            <div id="display-status" style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
                 Loading display status...
+            </div>
+            
+            <div class="image-upload" style="background: #f8f9fa; padding: 20px; border-radius: 5px;">
+                <h3>Upload Image</h3>
+                <form id="upload-form" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="image-file">Choose Image File (PNG, JPG, etc.):</label>
+                        <input type="file" id="image-file" name="file" accept="image/*" required>
+                    </div>
+                    <button type="submit" style="margin-top: 10px;">Upload Image</button>
+                </form>
+                <div id="upload-status" style="margin-top: 10px;"></div>
             </div>
         </div>
 
@@ -385,7 +397,9 @@ login_template = '''
                     const statusDiv = document.getElementById('display-status');
                     statusDiv.innerHTML = `
                         <h3>Display Status</h3>
-                        <p><strong>Display:</strong> ${status.display_connected ? 'Connected' : 'Simulation Mode'}</p>
+                        <p><strong>Display:</strong> ${status.display_connected ? 'Connected (' + status.display_type + ')' : 'Simulation Mode'}</p>
+                        ${status.display_connected ? '<p><strong>Resolution:</strong> ' + status.display_resolution + '</p>' : ''}
+                        ${status.display_connected ? '<p><strong>Color Mode:</strong> ' + status.color_mode + '</p>' : ''}
                         <p><strong>Rotation:</strong> ${status.rotation_running ? 'Running' : 'Stopped'}</p>
                         <p><strong>Interval:</strong> ${status.rotation_interval} seconds</p>
                         <p><strong>Images:</strong> ${status.total_images} found</p>
@@ -423,6 +437,44 @@ login_template = '''
                 alertDiv.remove();
             }, 3000);
         }
+        
+        // Handle image upload
+        document.getElementById('upload-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('image-file');
+            const file = fileInput.files[0];
+            const statusDiv = document.getElementById('upload-status');
+            
+            if (!file) {
+                statusDiv.innerHTML = '<p style="color: red;">Please select a file</p>';
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            statusDiv.innerHTML = '<p>Uploading...</p>';
+            
+            try {
+                const response = await fetch('/api/display/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    statusDiv.innerHTML = `<p style="color: green;">${result.message}</p>`;
+                    fileInput.value = ''; // Clear the input
+                    refreshStatus(); // Refresh display status to show new image
+                } else {
+                    statusDiv.innerHTML = `<p style="color: red;">Upload failed: ${result.detail}</p>`;
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `<p style="color: red;">Upload error: ${error.message}</p>`;
+            }
+        });
         
         // Load status on page load
         document.addEventListener('DOMContentLoaded', refreshStatus);
@@ -670,15 +722,7 @@ async def display_status():
     if not display_manager:
         raise HTTPException(status_code=503, detail="Display manager not available")
     
-    images = display_manager.get_demo_images()
-    return {
-        "display_connected": display_manager.display is not None,
-        "rotation_running": display_manager.running,
-        "rotation_interval": display_manager.rotation_interval,
-        "current_image_index": display_manager.current_image_index,
-        "total_images": len(images),
-        "images": [img.name for img in images],
-    }
+    return display_manager.get_status_dict()
 
 @app.post("/api/display/next")
 async def display_next_image():
@@ -715,6 +759,86 @@ async def stop_display_rotation():
         return {"status": "success", "message": "Display rotation stopped"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/display/upload")
+async def upload_image(file: UploadFile = File(...)):
+    """Upload an image to display"""
+    if not display_manager:
+        raise HTTPException(status_code=503, detail="Display manager not available")
+    
+    # Validate file type
+    if not file.content_type or not file.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    # Validate file size (max 10MB)
+    if file.size and file.size > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 10MB)")
+    
+    try:
+        # Read the uploaded file
+        contents = await file.read()
+        
+        # Create a temporary image file in the demo directory
+        from PIL import Image
+        import io
+        
+        # Load and validate the image
+        image = Image.open(io.BytesIO(contents))
+        
+        # Save to demo directory
+        demo_dir = Path(os.getenv("SRC_DIR", "/usr/local/dagr/src")) / "demo"
+        demo_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate unique filename
+        import uuid
+        file_extension = Path(file.filename).suffix or '.png'
+        unique_filename = f"uploaded_{uuid.uuid4().hex[:8]}{file_extension}"
+        save_path = demo_dir / unique_filename
+        
+        # Convert to RGB if necessary and save
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        image.save(save_path, 'PNG')
+        
+        logger.info(f"Image uploaded and saved: {save_path}")
+        
+        return {
+            "status": "success", 
+            "message": f"Image uploaded successfully as {unique_filename}",
+            "filename": unique_filename
+        }
+        
+    except Exception as e:
+        logger.error(f"Image upload failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload image: {str(e)}")
+
+@app.delete("/api/display/image/{filename}")
+async def delete_image(filename: str):
+    """Delete an uploaded image"""
+    if not display_manager:
+        raise HTTPException(status_code=503, detail="Display manager not available")
+    
+    try:
+        demo_dir = Path(os.getenv("SRC_DIR", "/usr/local/dagr/src")) / "demo"
+        image_path = demo_dir / filename
+        
+        if not image_path.exists():
+            raise HTTPException(status_code=404, detail="Image not found")
+        
+        # Don't allow deletion of original demo images
+        if filename in ['luna.png', 'odin.png']:
+            raise HTTPException(status_code=403, detail="Cannot delete original demo images")
+        
+        image_path.unlink()
+        logger.info(f"Image deleted: {image_path}")
+        
+        return {"status": "success", "message": f"Image {filename} deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Image deletion failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete image: {str(e)}")
 
 @app.get("/api/version")
 async def version_info():
