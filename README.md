@@ -19,6 +19,7 @@ git clone https://github.com/kilobyteno/dagr-device.git && cd dagr-device
 ```bash
 sudo bash device/install.sh
 ```
+Want to know what is going on? Run the install command with the `--verbose` option.
 
 ## Configuration
 

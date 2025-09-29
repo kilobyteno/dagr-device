@@ -5,8 +5,45 @@
 # Description: This script automates the installation of Dagr and creation of 
 #              the Dagr service.
 #
-# Usage: ./install.sh
+# Usage: ./install.sh [-v|--verbose] [-h|--help]
 # =============================================================================
+
+# Parse command line arguments
+VERBOSE=false
+SHOW_HELP=false
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -v|--verbose)
+      VERBOSE=true
+      shift
+      ;;
+    -h|--help)
+      SHOW_HELP=true
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Usage: $0 [-v|--verbose] [-h|--help]"
+      exit 1
+      ;;
+  esac
+done
+
+if [ "$SHOW_HELP" = true ]; then
+  echo "Dagr Installation Script"
+  echo ""
+  echo "Usage: $0 [OPTIONS]"
+  echo ""
+  echo "Options:"
+  echo "  -v, --verbose    Enable verbose output to see detailed installation steps"
+  echo "  -h, --help       Show this help message"
+  echo ""
+  echo "Examples:"
+  echo "  sudo bash install.sh              # Standard installation"
+  echo "  sudo bash install.sh --verbose    # Verbose installation"
+  exit 0
+fi
 
 # Formatting stuff
 bold=$(tput bold)
@@ -50,6 +87,7 @@ enable_system_interfaces() {
   # Check if we're on a Raspberry Pi
   if [ ! -f "/boot/firmware/config.txt" ] && [ ! -f "/boot/config.txt" ]; then
     info "Not running on Raspberry Pi - skipping hardware interface configuration"
+    verbose "Neither /boot/firmware/config.txt nor /boot/config.txt found"
     return
   fi
   
@@ -57,9 +95,11 @@ enable_system_interfaces() {
   CONFIG_FILE="/boot/firmware/config.txt"
   if [ ! -f "$CONFIG_FILE" ]; then
     CONFIG_FILE="/boot/config.txt"
+    verbose "Using legacy config file location"
   fi
   
   info "Using config file: $CONFIG_FILE"
+  verbose "Checking current SPI and I2C interface status..."
   
   # Configure SPI for e-ink display communication
   # Enable SPI interface as required by Inky displays
@@ -138,6 +178,18 @@ info() {
   echo -e "  \e[34mℹ\e[0m $1"
 }
 
+verbose() {
+  if [ "$VERBOSE" = true ]; then
+    echo -e "  \e[90m🔍\e[0m $1"
+  fi
+}
+
+debug() {
+  if [ "$VERBOSE" = true ]; then
+    echo -e "  \e[90m  → $1\e[0m"
+  fi
+}
+
 header() {
   echo -e "\n${bold}$1${normal}"
 }
@@ -150,26 +202,78 @@ highlight() {
   echo -e "\e[36m$1\e[0m"
 }
 
+# Execute command with verbose output
+run_verbose() {
+  local cmd="$1"
+  local description="$2"
+  
+  verbose "$description"
+  debug "Command: $cmd"
+  
+  if [ "$VERBOSE" = true ]; then
+    eval "$cmd"
+    local exit_code=$?
+  else
+    eval "$cmd" > /dev/null 2>&1
+    local exit_code=$?
+  fi
+  
+  if [ $exit_code -eq 0 ]; then
+    debug "✓ Success (exit code: $exit_code)"
+  else
+    debug "✗ Failed (exit code: $exit_code)"
+  fi
+  
+  return $exit_code
+}
+
 
 install_system_dependencies() {
   if [ -f "$DAGR_OS_DEPS_FILE" ]; then
     info "Installing system dependencies"
+    verbose "Dependencies file: $DAGR_OS_DEPS_FILE"
+    
+    if [ "$VERBOSE" = true ]; then
+      verbose "Package list:"
+      while read -r package; do
+        debug "$package"
+      done < "$DAGR_OS_DEPS_FILE"
+    fi
     
     # Update package repositories with timeout
     info "Updating package repositories..."
-    if timeout 300 sudo apt-get update > /dev/null 2>&1; then
-      success "Package repositories updated"
+    if [ "$VERBOSE" = true ]; then
+      verbose "Running: timeout 300 sudo apt-get update"
+      if timeout 300 sudo apt-get update; then
+        success "Package repositories updated"
+      else
+        info "Package update took longer than expected, continuing..."
+      fi
     else
-      info "Package update took longer than expected, continuing..."
+      if timeout 300 sudo apt-get update > /dev/null 2>&1; then
+        success "Package repositories updated"
+      else
+        info "Package update took longer than expected, continuing..."
+      fi
     fi
 
     # Install packages with progress indication
     info "Installing system packages..."
-    if xargs -a "$DAGR_OS_DEPS_FILE" sudo apt-get install -y > /dev/null 2>&1; then
-      success "System packages installed"
+    if [ "$VERBOSE" = true ]; then
+      verbose "Running: xargs -a $DAGR_OS_DEPS_FILE sudo apt-get install -y"
+      if xargs -a "$DAGR_OS_DEPS_FILE" sudo apt-get install -y; then
+        success "System packages installed"
+      else
+        error "Failed to install some system packages"
+        info "Continuing with installation..."
+      fi
     else
-      error "Failed to install some system packages"
-      info "Continuing with installation..."
+      if xargs -a "$DAGR_OS_DEPS_FILE" sudo apt-get install -y > /dev/null 2>&1; then
+        success "System packages installed"
+      else
+        error "Failed to install some system packages"
+        info "Continuing with installation..."
+      fi
     fi
   else
     error "System dependencies file not found: $DAGR_OS_DEPS_FILE"
@@ -200,32 +304,73 @@ optimize_system_performance() {
 
 setup_python_environment(){
   info "Setting up Python environment"
+  verbose "Virtual environment directory: $DAGR_VENV_DIR"
+  verbose "Python dependencies file: $DAGR_PY_DEPS_FILE"
   
   # Create virtual environment
   info "Creating Python virtual environment..."
-  if python3 -m venv "$DAGR_VENV_DIR"; then
-    success "Virtual environment created"
+  if [ "$VERBOSE" = true ]; then
+    verbose "Running: python3 -m venv $DAGR_VENV_DIR"
+    if python3 -m venv "$DAGR_VENV_DIR"; then
+      success "Virtual environment created"
+    else
+      error "Failed to create virtual environment"
+      exit 1
+    fi
   else
-    error "Failed to create virtual environment"
-    exit 1
+    if python3 -m venv "$DAGR_VENV_DIR" > /dev/null 2>&1; then
+      success "Virtual environment created"
+    else
+      error "Failed to create virtual environment"
+      exit 1
+    fi
   fi
   
   # Upgrade pip and core tools
   info "Upgrading pip and tools..."
-  if timeout 180 $DAGR_VENV_DIR/bin/python -m pip install --upgrade pip setuptools wheel > /dev/null 2>&1; then
-    success "Pip and tools upgraded"
+  local pip_cmd="$DAGR_VENV_DIR/bin/python -m pip install --upgrade pip setuptools wheel"
+  if [ "$VERBOSE" = true ]; then
+    verbose "Running: timeout 180 $pip_cmd"
+    if timeout 180 $pip_cmd; then
+      success "Pip and tools upgraded"
+    else
+      info "Pip upgrade took longer than expected, continuing..."
+    fi
   else
-    info "Pip upgrade took longer than expected, continuing..."
+    if timeout 180 $pip_cmd > /dev/null 2>&1; then
+      success "Pip and tools upgraded"
+    else
+      info "Pip upgrade took longer than expected, continuing..."
+    fi
   fi
 
   # Install project dependencies
   if [ -f "$DAGR_PY_DEPS_FILE" ]; then
     info "Installing Python packages..."
-    if timeout 600 $DAGR_VENV_DIR/bin/python -m pip install -r $DAGR_PY_DEPS_FILE > /dev/null 2>&1; then
-      success "Python packages installed"
+    
+    if [ "$VERBOSE" = true ]; then
+      verbose "Package list:"
+      while read -r package; do
+        debug "$package"
+      done < "$DAGR_PY_DEPS_FILE"
+    fi
+    
+    local install_cmd="$DAGR_VENV_DIR/bin/python -m pip install -r $DAGR_PY_DEPS_FILE"
+    if [ "$VERBOSE" = true ]; then
+      verbose "Running: timeout 600 $install_cmd"
+      if timeout 600 $install_cmd; then
+        success "Python packages installed"
+      else
+        error "Failed to install Python packages or timeout occurred"
+        info "You may need to install packages manually later"
+      fi
     else
-      error "Failed to install Python packages or timeout occurred"
-      info "You may need to install packages manually later"
+      if timeout 600 $install_cmd > /dev/null 2>&1; then
+        success "Python packages installed"
+      else
+        error "Failed to install Python packages or timeout occurred"
+        info "You may need to install packages manually later"
+      fi
     fi
   else
     info "No Python dependencies file found, skipping"
@@ -290,38 +435,65 @@ start_dagr_service() {
 
 setup_dagr_directories() {
   info "Setting up project directories"
+  verbose "Installation root: $DAGR_INSTALL_ROOT"
+  verbose "Source directory: $DAGR_SOURCE_DIR"
   
   # Remove existing installation if present
   if [[ -d "$DAGR_INSTALL_ROOT" ]]; then
-    rm -rf "$DAGR_INSTALL_ROOT" > /dev/null &
-    spinner "Removing existing installation"
+    verbose "Existing installation found, removing..."
+    if [ "$VERBOSE" = true ]; then
+      rm -rf "$DAGR_INSTALL_ROOT"
+    else
+      rm -rf "$DAGR_INSTALL_ROOT" > /dev/null 2>&1
+    fi
+    success "Existing installation removed"
   fi
 
   # Create installation directory
+  verbose "Creating installation directory structure..."
   mkdir -p "$DAGR_INSTALL_ROOT"
   success "Project directory created"
 
   # Copy source code directly (no symlink to avoid systemd security issues)
   if [[ -d "$DAGR_SOURCE_DIR" ]]; then
-    cp -r "$DAGR_SOURCE_DIR" "$DAGR_INSTALL_ROOT/"
+    verbose "Copying source code from $DAGR_SOURCE_DIR to $DAGR_INSTALL_ROOT/"
+    if [ "$VERBOSE" = true ]; then
+      cp -rv "$DAGR_SOURCE_DIR" "$DAGR_INSTALL_ROOT/"
+    else
+      cp -r "$DAGR_SOURCE_DIR" "$DAGR_INSTALL_ROOT/"
+    fi
     success "Source code copied to $DAGR_INSTALL_ROOT/src"
     
     # Copy scripts directory
     if [[ -d "$SCRIPT_DIR/scripts" ]]; then
-      cp -r "$SCRIPT_DIR/scripts" "$DAGR_INSTALL_ROOT/"
+      verbose "Copying scripts from $SCRIPT_DIR/scripts to $DAGR_INSTALL_ROOT/"
+      if [ "$VERBOSE" = true ]; then
+        cp -rv "$SCRIPT_DIR/scripts" "$DAGR_INSTALL_ROOT/"
+      else
+        cp -r "$SCRIPT_DIR/scripts" "$DAGR_INSTALL_ROOT/"
+      fi
       success "Scripts copied to $DAGR_INSTALL_ROOT/scripts"
     fi
     
     # Set proper ownership and permissions
+    verbose "Setting file ownership and permissions..."
+    debug "Setting ownership: chown -R root:root $DAGR_INSTALL_ROOT/src"
     chown -R root:root "$DAGR_INSTALL_ROOT/src"
+    debug "Setting ownership: chown -R root:root $DAGR_INSTALL_ROOT/scripts"
     chown -R root:root "$DAGR_INSTALL_ROOT/scripts" 2>/dev/null || true
+    
+    debug "Setting Python file permissions: chmod 644 *.py"
     find "$DAGR_INSTALL_ROOT/src" -type f -name "*.py" -exec chmod 644 {} \;
+    debug "Setting executable permissions: chmod 755 dagr_* *.sh"
     find "$DAGR_INSTALL_ROOT/src" -type f \( -name "dagr_*" -o -name "*.sh" \) -exec chmod 755 {} \;
     find "$DAGR_INSTALL_ROOT/scripts" -type f -name "*.sh" -exec chmod 755 {} \; 2>/dev/null || true
     find "$DAGR_INSTALL_ROOT/scripts" -type f -name "*.py" -exec chmod 755 {} \; 2>/dev/null || true
     success "Permissions set correctly"
   else
     error "Source directory not found: $DAGR_SOURCE_DIR"
+    debug "Checked path: $DAGR_SOURCE_DIR"
+    debug "Current directory: $(pwd)"
+    debug "Script directory: $SCRIPT_DIR"
     exit 1
   fi
 }
@@ -412,8 +584,16 @@ complete_dagr_installation() {
 
 header "Dagr Installation"
 info "Display management system for Raspberry Pi"
+if [ "$VERBOSE" = true ]; then
+  verbose "Verbose mode enabled - showing detailed installation steps"
+  debug "Script directory: $SCRIPT_DIR"
+  debug "Installation root: $DAGR_INSTALL_ROOT"
+  debug "Virtual environment: $DAGR_VENV_DIR"
+  debug "Service file: $DAGR_SERVICE_SOURCE -> $DAGR_SERVICE_TARGET"
+fi
 echo
 
+verbose "Starting installation sequence..."
 check_sudo_permissions
 stop_dagr_service
 enable_system_interfaces
